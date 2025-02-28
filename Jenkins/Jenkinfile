@@ -13,7 +13,7 @@ pipeline {
     stages {
         stage('Checkout Code') {
             steps {
-                git branch: 'main', url: 'https://github.com/hengabay7/Pro-Dev.git'
+                git branch: 'main', url: 'https://github.com/liadgoren/final-proj.git'
             }
         }
 
