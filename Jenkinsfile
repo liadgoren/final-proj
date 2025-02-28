@@ -3,9 +3,11 @@ pipeline {
 
     environment {
         TF_VERSION = "1.6.0"
-        TF_DIR = "Terraform"  
+        TF_DIR = "Terraform"
         AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
         AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
+        DOCKER_IMAGE = "hengabay7/appflask"
+        VERSION = "1.0.${env.BUILD_NUMBER}"  
     }
 
     stages {
@@ -15,22 +17,13 @@ pipeline {
             }
         }
 
-        stage('Check Terraform Directory') {
-            steps {
-                script {
-                    if (!fileExists(env.TF_DIR)) {
-                        error "ERROR: Terraform directory ${env.TF_DIR} not found!"
-                    }
-                }
-            }
-        }
-
         stage('Initialize Terraform') {
-             steps {
+            steps {
                 dir("${TF_DIR}") {
                     script {
                         def isInitialized = sh(script: "test -d .terraform && echo 'true' || echo 'false'", returnStdout: true).trim()
                         if (isInitialized == 'false') {
+                            echo "Terraform is not initialized. Running 'terraform init'..."
                             sh 'terraform init'
                         } else {
                             echo "Terraform is already initialized. Skipping init."
@@ -43,8 +36,7 @@ pipeline {
         stage('Plan Terraform') {
             steps {
                 dir("${TF_DIR}") {
-                    
-                    sh 'terraform plan -out=tfplan ; pwd'
+                    sh 'terraform plan -out=tfplan'
                 }
             }
         }
@@ -52,7 +44,6 @@ pipeline {
         stage('Apply Terraform') {
             steps {
                 dir("${TF_DIR}") {
-                    input message: 'Apply Terraform changes?', ok: 'Apply'
                     sh 'terraform apply -auto-approve tfplan'
                 }
             }
@@ -60,31 +51,93 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                echo "Building Docker image for branch: ${env.BRANCH_NAME}"
-                sh "docker build -t appflask:one ./appflask"
+                sh """
+                echo "🔨 Building Docker image with tag: ${VERSION}"
+                docker build -t ${DOCKER_IMAGE}:${VERSION} ./appflask
+                """
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                    sh """
+                    echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
+                    echo "📤 Pushing Docker image: ${DOCKER_IMAGE}:${VERSION}"
+                    docker tag ${DOCKER_IMAGE}:${VERSION} ${DOCKER_IMAGE}:${VERSION}
+                    docker push ${DOCKER_IMAGE}:${VERSION}
+                    """
+                }
             }
         }
 
         stage('Test Application') {
-            steps {                                  
-                echo "Running tests using unittest framework"
-                sh 'docker run -t appflask:one sh -c "python3 -m unittest discover -s . -p test_app.py"'
-            }
-        }                
-
-        stage('Deploy') {
-            when {
-                branch 'main'
-            }
             steps {
-                echo "Deploying application from branch: ${env.BRANCH_NAME}"
+                sh """
+                echo "🔍 Running tests..."
+                docker run -t ${DOCKER_IMAGE}:${VERSION} sh -c "python3 -m unittest discover -s . -p test_app.py"
+                """
+            }
+        }
+
+        stage('Fetch Elastic IP') {
+            steps {
+                script {
+                    echo "Fetching EC2 Elastic IP..."
+            
+                    def ec2_ip = sh(
+                        script: """
+                        aws ec2 describe-addresses --region us-east-1 \
+                        --filters "Name=tag:Name,Values=MyElasticIP" \
+                        --query 'Addresses[0].PublicIp' --output text
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    if (!ec2_ip || ec2_ip == "None") {
+                        error "❌ No Elastic IP found with name 'MyElasticIP'! Please verify the Elastic IP exists."
+                    }
+
+                    echo "✅ Elastic IP found: ${ec2_ip}"
+                    env.EC2_IP = ec2_ip
+                }
+            }
+        }
+
+        stage('Deploy to EC2') {
+            steps {
+                sshagent(['keypaircicd']) {
+                    sh """
+                    echo "🚀 Deploying to EC2 at ${EC2_IP} with image ${DOCKER_IMAGE}:${VERSION}..."
+
+                    mkdir -p ~/.ssh
+                    chmod 700 ~/.ssh
+                    ssh-keyscan -H ${EC2_IP} >> ~/.ssh/known_hosts
+                    chmod 644 ~/.ssh/known_hosts
+
+                    ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} <<EOF
+                    echo "🔄 Stopping old container..."
+                    docker stop appflask || true
+                    docker rm appflask || true
+
+                    echo "⬇ Pulling new Docker image..."
+                    docker pull ${DOCKER_IMAGE}:${VERSION}
+
+                    echo "🚀 Running new container..."
+                    docker run -d --name appflask -p 80:5000 --restart=always ${DOCKER_IMAGE}:${VERSION}
+
+                    echo "📋 Checking running containers..."
+                    docker ps
+EOF
+                    """
+                }
             }
         }
     }
 
     post {
         success {
-            echo "✅ Pipeline executed successfully!"
+            echo "✅ Pipeline executed successfully with Docker image: ${DOCKER_IMAGE}:${VERSION}"
         }
         failure {
             echo "❌ Pipeline failed! Check logs for details."
