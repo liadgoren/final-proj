@@ -90,13 +90,18 @@ module "ec2_instance" {
   key_name      = "keypaircicd" 
 
   user_data = <<-EOF
-              #!/bin/bash
-              sudo apt update -y
-              sudo apt install -y docker.io
-              sudo systemctl start docker
-              sudo systemctl enable docker
-              sudo usermod -aG docker ubuntu
-              EOF
+    #!/bin/bash
+    exec > /var/log/user-data.log 2>&1
+    echo "Starting Docker installation" 
+    sudo yum update -y
+    sudo amazon-linux-extras enable docker
+    sudo yum install -y docker
+    sudo systemctl start docker
+    sudo systemctl enable docker
+    sudo usermod -aG docker ec2-user
+    echo "Docker installed successfully" > /home/ec2-user/docker_installed.txt
+  EOF
+
 
   
   subnet_id       = module.vpc.public_subnets[0] 
@@ -111,14 +116,13 @@ module "ec2_instance" {
 
 resource "aws_eip" "eip" {
   domain = "vpc"
+
+  tags = {
+    Name = "MyElasticIP"  
+  }
 }
 
 resource "aws_eip_association" "eip_attach" {
   instance_id   = module.ec2_instance.id
   allocation_id = aws_eip.eip.id
-}
-
-output "external_ip" {
-  value       = aws_eip.eip.public_ip
-  description = "The Elastic IP assigned to the EC2 instance"
 }
