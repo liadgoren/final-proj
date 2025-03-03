@@ -91,7 +91,6 @@ module "ec2_instance" {
 
   user_data = <<-EOF
     #!/bin/bash
-    sudo su
     exec > /var/log/user-data.log 2>&1
     echo "Starting Docker installation" 
     sudo yum update -y
