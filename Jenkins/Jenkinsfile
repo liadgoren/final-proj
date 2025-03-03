@@ -74,8 +74,8 @@ pipeline {
         stage('Test Application') {
             steps {
                 sh """
-                echo "🔍 Running tests..."
-                // docker run -t ${DOCKER_IMAGE}:${VERSION} sh -c "python3 -m unittest discover -s . -p test_app.py"
+                echo "Running tests..."
+                # docker run -t ${DOCKER_IMAGE}:${VERSION} sh -c "python3 -m unittest discover -s . -p test_app.py"
                 """
             }
         }
