@@ -116,18 +116,37 @@ pipeline {
                     chmod 644 ~/.ssh/known_hosts
 
                     ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} <<EOF
+                    set -e  # עצירה אם פקודה נכשלת
+                    
+                    echo "🔄 Checking if Docker is installed..."
+                    if ! command -v docker &> /dev/null; then
+                        echo "❌ Docker not found! Installing Docker..."
+                        sudo yum update -y
+                        sudo amazon-linux-extras enable docker
+                        sudo yum install -y docker
+                        sudo systemctl start docker
+                        sudo systemctl enable docker
+                        sudo usermod -aG docker ec2-user
+                        newgrp docker
+                    else
+                        echo "✅ Docker is installed."
+                    fi
+
+                    echo "🔄 Restarting Docker service..."
+                    sudo systemctl restart docker
+
                     echo "🔄 Stopping old container..."
-                    docker stop appflask || true
-                    docker rm appflask || true
+                    sudo docker stop appflask || true
+                    sudo docker rm appflask || true
 
                     echo "⬇ Pulling new Docker image..."
-                    docker pull ${DOCKER_IMAGE}:${VERSION}
+                    sudo docker pull ${DOCKER_IMAGE}:${VERSION}
 
                     echo "🚀 Running new container..."
-                    docker run -d --name appflask -p 80:5000 --restart=always ${DOCKER_IMAGE}:${VERSION}
+                    sudo docker run -d --name appflask -p 80:5000 --restart=always ${DOCKER_IMAGE}:${VERSION}
 
                     echo "📋 Checking running containers..."
-                    docker ps
+                    sudo docker ps
 EOF
                     """
                 }
