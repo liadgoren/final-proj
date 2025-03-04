@@ -1,19 +1,20 @@
 import unittest
 import sys
-sys.path.append("/app")  # מוסיף את הנתיב של האפליקציה כדי שפייתון יוכל למצוא את app.py
+import os
 
-from app import app  # הייבוא נשאר אותו הדבר
+sys.path.insert(0, "/app")
+
+from app import app  
 
 class HelloNameTestCase(unittest.TestCase):
-    def setUp(self):       
+    def setUp(self):
         self.app = app.test_client()
         self.app.testing = True
 
-    def test_hello_name(self):       
+    def test_hello_name(self):
         response = self.app.get('/hello/testuser')
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'Hello testuser!', response.data)
 
 if __name__ == '__main__':
-    
     unittest.main()
