@@ -1,5 +1,8 @@
 import unittest
-from app import app  
+import sys
+sys.path.append("/app")  # מוסיף את הנתיב של האפליקציה כדי שפייתון יוכל למצוא את app.py
+
+from app import app  # הייבוא נשאר אותו הדבר
 
 class HelloNameTestCase(unittest.TestCase):
     def setUp(self):       
