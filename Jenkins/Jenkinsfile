@@ -7,7 +7,7 @@ pipeline {
         AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
         AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
         DOCKER_IMAGE = "liadgo/appflask"
-        VERSION = "1.0.${env.BUILD_NUMBER}"  
+        VERSION = "1.0.${BUILD_NUMBER}"  // ✅ מוסיף מספר בנייה ייחודי
     }
 
     stages {
@@ -53,7 +53,7 @@ pipeline {
             steps {
                 sh """
                 echo "🔨 Building Docker image with tag: ${VERSION}"
-                docker build -t ${DOCKER_IMAGE}:${VERSION} ./appflask
+                docker build --no-cache -t ${DOCKER_IMAGE}:${VERSION} ./appflask  # ✅ שימוש ב --no-cache לבנייה נקייה
                 """
             }
         }
@@ -64,7 +64,6 @@ pipeline {
                     sh """
                     echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
                     echo "📤 Pushing Docker image: ${DOCKER_IMAGE}:${VERSION}"
-                    docker tag ${DOCKER_IMAGE}:${VERSION} ${DOCKER_IMAGE}:${VERSION}
                     docker push ${DOCKER_IMAGE}:${VERSION}
                     """
                 }
@@ -74,8 +73,8 @@ pipeline {
         stage('Test Application') {
             steps {
                 sh """
-                echo "Running tests..."
-                docker run -t ${DOCKER_IMAGE}:${VERSION} sh -c "python3 -m unittest discover -s /app -p 'test_*.py'"
+                echo "🚀 Running tests on Docker image: ${DOCKER_IMAGE}:${VERSION}"
+                docker run --rm ${DOCKER_IMAGE}:${VERSION} sh -c "python3 -m unittest discover -s /app -p 'test_*.py'"
                 """
             }
         }
