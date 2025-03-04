@@ -81,6 +81,9 @@ pipeline {
         }
 
         stage('Fetch Elastic IP') {
+            when {
+                branch 'main'
+            }
             steps {
                 script {
                     echo "Fetching EC2 Elastic IP..."
