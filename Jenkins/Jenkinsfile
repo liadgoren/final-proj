@@ -75,7 +75,7 @@ pipeline {
             steps {
                 sh """
                 echo "Running tests..."
-                docker run -t ${DOCKER_IMAGE}:${VERSION} sh -c "pip install -e . ; python3 -m unittest discover -s . -p test_app.py"
+                docker run -t ${DOCKER_IMAGE}:${VERSION} sh -c "python3 -m unittest discover -s /app -p 'test_*.py'"
                 """
             }
         }
