@@ -6,14 +6,14 @@ pipeline {
         TF_DIR = "Terraform"
         AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
         AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
-        DOCKER_IMAGE = "liadgo/appflask"
-        VERSION = "1.0.${env.BUILD_NUMBER}"  
+        DOCKER_IMAGE = "hengabay7/appflask"
+        VERSION = "1.0.${env.BUILD_NUMBER}"  // גרסה דינמית לפי מספר ה-Build
     }
 
     stages {
         stage('Checkout Code') {
             steps {
-                git branch: 'main', url: 'https://github.com/liadgoren/final-proj.git'
+                git branch: 'main', url: 'https://github.com/hengabay7/Pro-Dev.git'
             }
         }
 
@@ -49,6 +49,16 @@ pipeline {
             }
         }
 
+        stage('Test Application') {
+            steps {
+                sh """
+                echo "🔍 Running tests..."
+                docker run -t ${DOCKER_IMAGE}:${VERSION} sh -c "python3 -m unittest discover -s . -p test_app.py"
+                """
+            }
+        }
+
+
         stage('Build Docker Image') {
             steps {
                 sh """
@@ -59,6 +69,9 @@ pipeline {
         }
 
         stage('Push to Docker Hub') {
+            when{
+                branch 'main'
+            }
             steps {
                 withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     sh """
@@ -71,16 +84,11 @@ pipeline {
             }
         }
 
-        stage('Test Application') {
-            steps {
-                sh """
-                echo "🔍 Running tests..."
-                docker run -t ${DOCKER_IMAGE}:${VERSION} sh -c "python3 -m unittest discover -s . -p test_app.py"
-                """
-            }
-        }
 
         stage('Fetch Elastic IP') {
+            when{
+                branch 'main'
+            }
             steps {
                 script {
                     echo "Fetching EC2 Elastic IP..."
@@ -105,7 +113,7 @@ pipeline {
         }
 
         stage('Deploy to EC2') {
-            when {
+            when{
                 branch 'main'
             }
             steps {
@@ -119,37 +127,18 @@ pipeline {
                     chmod 644 ~/.ssh/known_hosts
 
                     ssh -o StrictHostKeyChecking=no ec2-user@${EC2_IP} <<EOF
-                    set -e  # עצירה אם פקודה נכשלת
-                    
-                    echo "🔄 Checking if Docker is installed..."
-                    if ! command -v docker &> /dev/null; then
-                        echo "❌ Docker not found! Installing Docker..."
-                        sudo yum update -y
-                        sudo amazon-linux-extras enable docker
-                        sudo yum install -y docker
-                        sudo systemctl start docker
-                        sudo systemctl enable docker
-                        sudo usermod -aG docker ec2-user
-                        newgrp docker
-                    else
-                        echo "✅ Docker is installed."
-                    fi
-
-                    echo "🔄 Restarting Docker service..."
-                    sudo systemctl restart docker
-
                     echo "🔄 Stopping old container..."
-                    sudo docker stop appflask || true
-                    sudo docker rm appflask || true
+                    docker stop appflask || true
+                    docker rm appflask || true
 
                     echo "⬇ Pulling new Docker image..."
-                    sudo docker pull ${DOCKER_IMAGE}:${VERSION}
+                    docker pull ${DOCKER_IMAGE}:${VERSION}
 
                     echo "🚀 Running new container..."
-                    sudo docker run -d --name appflask -p 80:5000 --restart=always ${DOCKER_IMAGE}:${VERSION}
+                    docker run -d --name appflask -p 80:5000 --restart=always ${DOCKER_IMAGE}:${VERSION}
 
                     echo "📋 Checking running containers..."
-                    sudo docker ps
+                    docker ps
 EOF
                     """
                 }
@@ -157,12 +146,4 @@ EOF
         }
     }
 
-    post {
-        success {
-            echo "✅ Pipeline executed successfully with Docker image: ${DOCKER_IMAGE}:${VERSION}"
-        }
-        failure {
-            echo "❌ Pipeline failed! Check logs for details."
-        }
-    }
 }
