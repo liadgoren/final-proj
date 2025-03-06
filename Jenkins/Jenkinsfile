@@ -12,7 +12,8 @@ pipeline {
     stages {
         stage('Checkout Code') {
             steps {
-                git branch: 'featurebranch', url: 'https://github.com/liadgoren/final-proj.git'
+                git branch: 'featurebranch', 
+                    url: 'https://github.com/liadgoren/final-proj.git'
             }
         }
 
@@ -32,4 +33,3 @@ pipeline {
         }
     }
 }
-
