@@ -53,6 +53,9 @@ workflow depends on.
 
 ## Running locally
 
+Requires Python 3.10+ (matches what CI and the Docker image use; the
+pinned `click` version requires it).
+
 ```bash
 cd appflask
 pip install -r requirements.txt
