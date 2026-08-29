@@ -1,0 +1,167 @@
+name: CD
+
+# Runs only after CI has already passed on main (via workflow_run), so a
+# broken/insecure build never reaches the build-push-sign / deploy stages.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  DOCKER_IMAGE: liadgo/appflaskk
+
+jobs:
+  build-scan-push-sign:
+    if: github.event.workflow_run.conclusion == 'success'
+    name: Build, scan, push & sign image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for cosign keyless signing (OIDC)
+    outputs:
+      image_digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (local only, not pushed yet)
+        uses: docker/build-push-action@v6
+        with:
+          context: appflask
+          push: false
+          load: true
+          tags: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+
+      - name: Scan image with Trivy before it is ever pushed
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push image (git-sha tag + latest)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: appflask
+          push: true
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+            ${{ env.DOCKER_IMAGE }}:latest
+
+      - name: Generate SBOM (syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.DOCKER_IMAGE }}@${{ steps.push.outputs.digest }}
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Keyless-sign the pushed image digest
+        run: cosign sign --yes "${DOCKER_IMAGE}@${DIGEST}"
+        env:
+          DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+
+  terraform:
+    name: Terraform plan & apply
+    needs: build-scan-push-sign
+    runs-on: ubuntu-latest
+    environment: production # configure required reviewers on this GitHub Environment
+    permissions:
+      contents: read
+      id-token: write # required to assume the AWS role via OIDC, no static AWS keys
+    defaults:
+      run:
+        working-directory: Terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: Configure AWS credentials (OIDC, no static keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=final-proj/terraform.tfstate" \
+            -backend-config="region=us-east-1" \
+            -backend-config="dynamodb_table=${{ vars.TF_STATE_DYNAMODB_TABLE }}"
+
+      - name: Terraform plan
+        run: terraform plan -out=tfplan
+
+      - name: Terraform apply
+        run: terraform apply -auto-approve tfplan
+
+  deploy:
+    name: Deploy via SSM
+    needs: [build-scan-push-sign, terraform]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Configure AWS credentials (OIDC, no static keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Roll out new image on the instance via SSM (no SSH, no open port 22)
+        env:
+          DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=example-amazon-linux-instance" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].InstanceId' --output text)
+
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            echo "::error::No running instance found tagged Name=example-amazon-linux-instance"
+            exit 1
+          fi
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "commands=[
+              'docker pull ${DOCKER_IMAGE}:${IMAGE_TAG}',
+              'docker stop appflask || true',
+              'docker rm appflask || true',
+              'docker run -d --name appflask -p 80:5000 --restart=always ${DOCKER_IMAGE}:${IMAGE_TAG}'
+            ]" \
+            --query 'Command.CommandId' --output text)
+
+          aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID"
+          aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID"

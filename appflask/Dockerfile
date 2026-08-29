@@ -1,17 +1,22 @@
+# Pin by tag + digest for reproducible, tamper-evident builds.
+# Refresh the digest with: docker pull alpine:3.21.2 && docker inspect --format='{{index .RepoDigests 0}}' alpine:3.21.2
 FROM alpine:3.21.2
+
+RUN apk update && \
+    apk add --no-cache python3 py3-pip && \
+    addgroup -S app && adduser -S app -G app
+
 WORKDIR /app
-RUN apk update
-RUN apk add python3 
-RUN apk add --no-cache python3 py3-pip
 
-RUN python -m venv /app/venv 
+COPY requirements.txt .
+RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 
-ENV PATH="/app/venv/bin:$PATH"
+COPY app.py .
 
-COPY ./requirements.txt /app 
+USER app
 
-RUN pip install -r requirements.txt
+EXPOSE 5000
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/healthz', timeout=2)" || exit 1
 
-COPY  ./app.py /app
-COPY ./test_app.py /app
-CMD ["python3", "app.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "app:app"]

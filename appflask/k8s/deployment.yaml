@@ -1,0 +1,57 @@
+# Optional deployment target for a Kubernetes cluster. This is not wired
+# into the AWS pipeline (which deploys straight to the EC2 instance via
+# SSM, see .github/workflows/cd.yml) -- it's provided as an alternative,
+# security-hardened manifest if you point it at a real cluster (EKS, kind,
+# minikube, ...): `kubectl apply -f appflask/k8s/`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appflask
+  labels:
+    app: appflask
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: appflask
+  template:
+    metadata:
+      labels:
+        app: appflask
+    spec:
+      containers:
+        - name: appflask
+          image: liadgo/appflaskk:latest
+          ports:
+            - containerPort: 5000
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            initialDelaySeconds: 2
+            periodSeconds: 10
+      volumes:
+        - name: tmp
+          emptyDir: {}

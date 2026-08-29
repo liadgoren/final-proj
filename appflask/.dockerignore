@@ -1,0 +1,8 @@
+**/__pycache__
+*.pyc
+.git
+.gitignore
+test_app.py
+.dockerignore
+Dockerfile
+k8s/

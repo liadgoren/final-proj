@@ -1,0 +1,9 @@
+# Copy this file to backend.hcl (gitignored) and fill in real values,
+# or pass the same keys via `terraform init -backend-config="key=value"`
+# / -backend-config flags in CI. See Terraform/README.md for how to
+# bootstrap the bucket and table one time.
+bucket         = "CHANGE-ME-tfstate-bucket"
+key            = "final-proj/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "CHANGE-ME-tfstate-lock"
+encrypt        = true
