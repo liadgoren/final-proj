@@ -102,7 +102,7 @@ resource "aws_iam_instance_profile" "ssm" {
 
 module "ec2_instance" {
   source  = "terraform-aws-modules/ec2-instance/aws"
-  version = "5.1.0"
+  version = "6.4.0"
 
   name = "example-instance"
 
