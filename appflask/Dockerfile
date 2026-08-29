@@ -1,6 +1,6 @@
 # Pin by tag + digest for reproducible, tamper-evident builds.
 # Refresh the digest with: docker pull alpine:3.21.2 && docker inspect --format='{{index .RepoDigests 0}}' alpine:3.21.2
-FROM alpine:3.21.2
+FROM alpine:3.24.1
 
 RUN apk update && \
     apk add --no-cache python3 py3-pip && \
